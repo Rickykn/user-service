@@ -2,9 +2,13 @@ package handler
 
 import (
 	"context"
+	"errors"
 	userpb "github.com/Rickykn/drug-proto/gen/user"
+	"github.com/Rickykn/user-service/src/logger"
 	"github.com/Rickykn/user-service/src/model"
 	"github.com/Rickykn/user-service/src/service"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"time"
 )
 
@@ -20,12 +24,23 @@ func NewUserHandler(svc service.IUserService) *UserHandler {
 }
 
 func (uh *UserHandler) GetUser(ctx context.Context, req *userpb.GetUserRequest) (*userpb.GetUserResponse, error) {
-	user, err := uh.userSvc.GetUserByUsername(ctx, req.Username)
+	log := logger.WithContext(ctx)
 
-	if err != nil {
-		panic("handler error from service")
+	log.Info().Str("username", req.Username).Msg("get user")
+
+	if req.Username == "" {
+		err := errors.New("username is required")
+		log.Error().Err(err).Msg("Validation failed")
+		return nil, status.Error(codes.InvalidArgument, "invalid argument")
 	}
 
+	user, err := uh.userSvc.GetUserByUsername(ctx, req.Username)
+	if err != nil {
+		log.Error().Err(err).Msg("get user failed")
+		return nil, status.Error(codes.Internal, "internal server error")
+	}
+
+	log.Info().Msg("get user successfully")
 	return &userpb.GetUserResponse{
 		Id:       user.ID,
 		Username: user.Username,

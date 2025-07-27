@@ -4,8 +4,12 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"github.com/Rickykn/user-service/db"
+	"github.com/Rickykn/user-service/src/config"
 	"github.com/Rickykn/user-service/src/handler"
+	"github.com/Rickykn/user-service/src/interceptor"
+	"github.com/Rickykn/user-service/src/logger"
 	"github.com/Rickykn/user-service/src/repository"
 	"github.com/Rickykn/user-service/src/service"
 	"google.golang.org/grpc/credentials/insecure"
@@ -20,6 +24,12 @@ import (
 )
 
 func main() {
+	cfg, err := config.LoadFromEnv()
+	if err != nil {
+		log.Fatalf("grpc: main failed to load and parse config: %s", err)
+		return
+	}
+
 	flag.Parse()
 	ctx := context.Background()
 	ctx, cancel := context.WithCancel(ctx)
@@ -27,16 +37,16 @@ func main() {
 
 	// DATABASE CONNECTION
 	dbCon := db.Config{
-		AppInfo:     "user-service",
-		Username:    "postgres",
-		Password:    "postgres",
-		Database:    "drug-store",
-		Host:        "localhost",
-		SSLMode:     "disable",
-		Port:        5432,
-		ConnMaxOpen: 10,
-		ConnMaxIdle: 2,
-		Logging:     true,
+		AppInfo:     cfg.AppInfo.Name,
+		Username:    cfg.PostgreSQL.Username,
+		Password:    cfg.PostgreSQL.Password,
+		Database:    cfg.PostgreSQL.Database,
+		Host:        cfg.PostgreSQL.Host,
+		SSLMode:     cfg.PostgreSQL.SSLMode,
+		Port:        cfg.PostgreSQL.Port,
+		ConnMaxOpen: cfg.PostgreSQL.MaxOpenConns,
+		ConnMaxIdle: cfg.PostgreSQL.MaxIdleConns,
+		Logging:     cfg.PostgreSQL.Logging,
 	}
 
 	newDB, err := db.NewDB(dbCon)
@@ -44,8 +54,13 @@ func main() {
 		log.Fatalf("DB connection failed: %v", err)
 	}
 
-	grpcServer := grpc.NewServer()
-	lis, err := net.Listen("tcp", ":50051")
+	logger.Init(cfg.AppInfo.Name, cfg.AppInfo.Environment, cfg.Logger.Level)
+
+	grpcServer := grpc.NewServer(
+		grpc.UnaryInterceptor(interceptor.LoggingInterceptor()),
+	)
+	addr := fmt.Sprintf(":%d", cfg.GRPCServer.Port)
+	lis, err := net.Listen("tcp", addr)
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
 	}
@@ -56,7 +71,7 @@ func main() {
 	user.RegisterUserServiceServer(grpcServer, userHandler)
 
 	go func() {
-		log.Println("Starting gRPC server on :50051")
+		log.Printf("Starting gRPC server on :%d", cfg.GRPCServer.Port)
 		if err := grpcServer.Serve(lis); err != nil {
 			log.Fatalf("failed to serve: %v", err)
 		}
@@ -68,8 +83,9 @@ func main() {
 		log.Fatalf("failed to start HTTP gateway: %v", err)
 	}
 
-	log.Println("Starting HTTP gateway on :8080")
-	if err := http.ListenAndServe(":8080", mux); err != nil {
+	addrRestProxy := fmt.Sprintf(":%d", cfg.GRPCRESTProxyServer.Port)
+	log.Printf("Starting HTTP gateway on %s", addrRestProxy)
+	if err := http.ListenAndServe(addrRestProxy, mux); err != nil {
 		log.Fatalf("failed to serve HTTP: %v", err)
 	}
 }
