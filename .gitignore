@@ -1,1 +1,18 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+
+# Output of go build
+*.out
+
+# Vendor directory
 vendor/
+
+# IDE/editor files
+.idea/
+.vscode/
+*.swp
